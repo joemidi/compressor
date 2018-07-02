@@ -1,9 +1,10 @@
 const program = require('commander');
-// const opn = require('opn');
+const opn = require('opn');
 const fs = require('fs');
 const net = require('net');
 
 const defaultFormat = 'jpg';
+const version = 1;
 
 const settings = {
   host: 'compress-or-die.com',
@@ -16,38 +17,45 @@ program
   .description(process.env.npm_package_description);
 
 const sendDataToServer = (_settings, headerData, data) => {
-  const socket = new net.Socket();
   const regex = /(_.+):(.+)/g;
   const fields = {};
-  let answer;
   let match;
 
-  socket.setEncoding('binary');
-  socket.setTimeout(3000);
-  socket.connect({
+  const socket = net.createConnection({
     port: 80,
     host: _settings.host,
-  });
-
-  socket.on('ready', () => {
-    socket.write(`POST ${_settings.api}HTTP/1.0\r\n`);
+  }, () => {
+    console.log('Connected to server!');
+    socket.write(`POST ${_settings.api} HTTP/1.0\r\n`);
     socket.write(`Host: ${_settings.host}\r\n`);
-    socket.write(`Content-Type: image/${defaultFormat}\r\n`);
+    socket.write('Content-Type: image/png\r\n');
     socket.write(`Content-Length: ${data.length}\r\n`);
 
     Object.keys(headerData).map(key => socket.write(`${key}: ${headerData[key]}\r\n`));
-
     socket.write('Connection: close\r\n');
     socket.write('\r\n');
     socket.write(data);
-    answer = socket.read(9999999);
-    do {
+  }).on('data', (_data) => {
+    console.log(_data);
+
+    while (match = regex.exec(_data.toString())) {
       fields[match[1]] = match[2];
-    } while ((match = regex.exec(answer)));
-    socket.close();
+    }
+
+    socket.end();
+  }).on('end', () => {
+    if (fields._VERSION !== version) {
+      console.warn('This version of your Photoshop script is outdated. Get the new one at compress-or-die.com');
+    }
+
+    const url = `https://${_settings.host}${_settings.process}?session=${fields._SESSION}`;
+
+    console.log(`Opening: ${url}`);
+
+    opn(url);
   });
 
-  return fields;
+  socket.setEncoding('binary');
 };
 
 program
@@ -56,15 +64,9 @@ program
     fs.readFile(file, 'binary', (err, data) => {
       if (err) throw err;
 
-      const buffer = data;
-      const answer = sendDataToServer(settings, {
+      sendDataToServer(settings, {
         'X-Document-Name': 'bannertime',
-      }, buffer);
-      const url = `http://${settings.host}${settings.process}?session=${answer}`;
-      console.log(url);
-      console.log(answer);
-      console.log('Sending %s to https://compress-or-die.com', file);
-      // opn(url);
+      }, data);
     });
   });
 
